@@ -65,6 +65,7 @@ fun CameraView(ViewModel : MainViewModel) {
     val imageCapture = remember { ImageCapture.Builder().build() }
     val cameraHelper = remember { CameraCaptureHelper(imageCapture, context, ViewModel) }
     val isLoading = remember { mutableStateOf(false) }
+    val showHelp = remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         CameraPreview(Modifier.fillMaxSize(), imageCapture)
@@ -91,7 +92,6 @@ fun CameraView(ViewModel : MainViewModel) {
                 )
             }
         }
-
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -99,12 +99,12 @@ fun CameraView(ViewModel : MainViewModel) {
         ) {
             LargeFloatingActionButton(
                 onClick = {
-                    isLoading.value = true
                     coroutineScope.launch {
+                        isLoading.value = true
                         cameraHelper.captureFrame()
+                        isLoading.value = false
+                        ViewModel.showStatus("Capture taken.")
                     }
-                    isLoading.value = false
-                    ViewModel.showStatus("Capture taken.")
                 },
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.secondary,
@@ -126,10 +126,13 @@ fun CameraView(ViewModel : MainViewModel) {
             LargeFloatingActionButton(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.secondary,
-                onClick = { },
+                onClick = { showHelp.value = true },
             ) {
                 Icon(Icons.Filled.HelpOutline, contentDescription = "Help", modifier = Modifier.size(36.dp))
             }
         }
+
+        if (showHelp.value)
+            AboutDialog(onDismissRequest = { showHelp.value = false })
     }
 }

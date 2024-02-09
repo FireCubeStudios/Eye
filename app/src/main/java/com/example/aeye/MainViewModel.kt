@@ -41,8 +41,8 @@ import okio.Buffer
 import java.util.prefs.Preferences
 import kotlin.time.Duration.Companion.seconds
 
-const val KEY : String = "nuh uh"
-const val InitialMessageGPT3I : String = "You are an AI assistant in a chat application where users can send text prompts along with multiple images. While you don’t have the capability to analyze images, you are aware that images are being processed elsewhere. Your task is to acknowledge the user’s request and let them know that their images are being processed. For example, if a user asks ‘what is in front of me right now?’ with images attached, you might respond, ‘I can help describe what’s in front of you. I’m currently processing the images. Please wait a moment.’ Your responses should be concise and informative."
+const val KEY : String = ""
+const val InitialMessageGPT3I : String = "You are an AI assistant in a chat application where users can send text prompts along with multiple images. While you don’t have the capability to analyze images, you are aware that images are being processed elsewhere. Your task is to acknowledge the user’s request and let them know that their images are being processed. For example, if a user asks ‘what is in front of me right now?’ with images attached, you might respond, ‘I can help describe what’s in front of you. I’m currently processing the images. Please wait a moment.’ Your responses should be concise and informative. REMEMBER DO NOT MENTION ANYTHING ABOUT BEING UNABLE TO SEE OR PROCESS IMAGES. PRETEND YOU CAN ANALYSE THE IMAGES"
 const val InitialMessageGPT4 : String = "You are an AI assistant in an application that accepts speech-to-text input. The user can speak to the application, and you will receive this speech input to assist the user. Some users may be visually impaired, so ensure your assistance is accessible and inclusive. For example, if a user asks for a summary of a news article they heard about, provide a concise summary based on the information they provide in their speech."
 const val InitialMessageGPT4V : String = "You are an assistant for an app that has speech to text input and camera input. For GPT-4: The user can point their camera and capture a frame per second while they speak, you will be given these frames and speech input to help the user. Try not to refer to these frames as image1, image 2 but instead pretend they are continuous as if a video was taken. Unless the user explicitly refers to a specific image. The user can be visually impaired so assist them in an accessible and inclusive manner."
 class MainViewModel(application: Application) : AndroidViewModel(application){
@@ -87,141 +87,150 @@ class MainViewModel(application: Application) : AndroidViewModel(application){
     }
 
     fun addMessage(text: String) {
-        var completions: Flow<ChatCompletionChunk>? = null;
+        try {
+            var completions: Flow<ChatCompletionChunk>? = null;
 
-        if(images.isEmpty()) {
-            chatMessages = chatMessages + Message(text, MessageType.User) // Add user message
+            if (images.isEmpty()) {
+                chatMessages = chatMessages + Message(text, MessageType.User) // Add user message
 
-            var chatCompletionRequest = ChatCompletionRequest(
-                model = ModelId("gpt-3.5-turbo"),
-                messages = chatMessages.map { message ->
-                    ChatMessage(
-                        content = message.text.value,
-                        role = when (message.type) {
-                            MessageType.User -> ChatRole.User
-                            MessageType.Model -> ChatRole.Assistant
-                            MessageType.System -> ChatRole.System
-                            else -> ChatRole.System
-                        },
-                    )
-                }
-            )
-            completions = openAI.chatCompletions(chatCompletionRequest)
-        }
-        else {
-            chatMessages = chatMessages + ImageMessage(text, MessageType.User, images) // Add user message with images
-
-
-            if(images.size > 2){ // show transient message because gpt 4 is long loading
                 var chatCompletionRequest = ChatCompletionRequest(
                     model = ModelId("gpt-3.5-turbo"),
-                    messages = listOf(
+                    messages = chatMessages.map { message ->
                         ChatMessage(
-                            role = ChatRole.System,
-                            content = InitialMessageGPT3I
-                        ),
-                        ChatMessage(
-                            role = ChatRole.User,
-                            content = text
+                            content = message.text.value,
+                            role = when (message.type) {
+                                MessageType.User -> ChatRole.User
+                                MessageType.Model -> ChatRole.Assistant
+                                MessageType.System -> ChatRole.System
+                                else -> ChatRole.System
+                            },
                         )
-                    )
-                )
-                var ccompletions = openAI.chatCompletions(chatCompletionRequest)
-
-                val response = Message("",MessageType.Model)
-                chatMessages = chatMessages + response // Add response message
-
-                viewModelScope.launch {
-                    ccompletions.collect { completion ->
-                        completion.choices.forEach { choice ->
-                            withContext(Dispatchers.Main) {
-                                if (choice.delta.content != null)
-                                    response.text.value += choice.delta.content
-                            }
-                        }
                     }
-                    if(isAccessible){
-                        player.stopReading();
-                        val rawAudio: ByteArray = openAI.speech(
-                            request = SpeechRequest(
-                                model = ModelId("tts-1"),
-                                input = response.text.value,
-                                voice = Voice.Alloy,
+                )
+                completions = openAI.chatCompletions(chatCompletionRequest)
+            } else {
+                chatMessages = chatMessages + ImageMessage(
+                    text,
+                    MessageType.User,
+                    images
+                ) // Add user message with images
+
+
+                if (images.size > 0) { // show transient message because gpt 4 is long loading
+                    var chatCompletionRequest = ChatCompletionRequest(
+                        model = ModelId("gpt-3.5-turbo"),
+                        messages = listOf(
+                            ChatMessage(
+                                role = ChatRole.System,
+                                content = InitialMessageGPT3I
+                            ),
+                            ChatMessage(
+                                role = ChatRole.User,
+                                content = text
                             )
                         )
-                        player.startReading(rawAudio);
+                    )
+                    var ccompletions = openAI.chatCompletions(chatCompletionRequest)
+
+                    val response = Message("", MessageType.Model)
+                    chatMessages = chatMessages + response // Add response message
+
+                    viewModelScope.launch {
+                        ccompletions.collect { completion ->
+                            completion.choices.forEach { choice ->
+                                withContext(Dispatchers.Main) {
+                                    if (choice.delta.content != null)
+                                        response.text.value += choice.delta.content
+                                }
+                            }
+                        }
+                        if (isAccessible) {
+                            player.stopReading();
+                            val rawAudio: ByteArray = openAI.speech(
+                                request = SpeechRequest(
+                                    model = ModelId("tts-1"),
+                                    input = response.text.value,
+                                    voice = Voice.Alloy,
+                                )
+                            )
+                            player.startReading(rawAudio);
+                        }
                     }
                 }
-            }
-            clearImages()
+                clearImages()
 
-            val chatCompletionRequest = chatCompletionRequest {
-                model = ModelId("gpt-4-vision-preview")
-                messages {
-                    for (message in chatMessages) {
-                        if (message.type == MessageType.User) {
-                            user {
-                                content {
-                                    text(message.text.value)
-                                    if (message is ImageMessage) {
-                                        for (image in message.images) {
-                                            val encoding = image.encodeBase64()
-                                            image("data:image/jpeg;base64,$encoding")
+                val chatCompletionRequest = chatCompletionRequest {
+                    model = ModelId("gpt-4-vision-preview")
+                    messages {
+                        for (message in chatMessages) {
+                            if (message.type == MessageType.User) {
+                                user {
+                                    content {
+                                        text(message.text.value)
+                                        if (message is ImageMessage) {
+                                            for (image in message.images) {
+                                                val encoding = image.encodeBase64()
+                                                image("data:image/jpeg;base64,$encoding")
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        } else if (message.type == MessageType.Model) {
-                            assistant {
-                                content = message.text.value
-                            }
-                        } else {
-                            system {
-                                content = message.text.value
+                            } else if (message.type == MessageType.Model) {
+                                assistant {
+                                    content = message.text.value
+                                }
+                            } else {
+                                system {
+                                    content = message.text.value
+                                }
                             }
                         }
                     }
+                    maxTokens = 900
                 }
-                maxTokens = 600
+                completions = openAI.chatCompletions(chatCompletionRequest)
             }
-            completions = openAI.chatCompletions(chatCompletionRequest)
-        }
-        try {
-            if(isAccessible) {
-                navController?.navigate(MainActivity.Screen.Screen1.route)
-                index.value = 0
+            try {
+                if (isAccessible) {
+                    navController?.navigate(MainActivity.Screen.Screen1.route)
+                    index.value = 0
+                }
+            } catch (e: Exception) {
+                // Handle or log the exception
             }
-        } catch (e: Exception) {
-            // Handle or log the exception
-        }
 
-        val response = Message("", MessageType.Model)
-        chatMessages = chatMessages + response // Add response message
+            val response = Message("", MessageType.Model)
+            chatMessages = chatMessages + response // Add response message
 
-        viewModelScope.launch {
-            completions.collect { completion ->
-                completion.choices.forEach { choice ->
-                    withContext(Dispatchers.Main) {
-                        if (choice.delta.content != null)
-                            response.text.value += choice.delta.content
+            viewModelScope.launch {
+                completions.collect { completion ->
+                    completion.choices.forEach { choice ->
+                        withContext(Dispatchers.Main) {
+                            if (choice.delta.content != null)
+                                response.text.value += choice.delta.content
+                        }
                     }
                 }
-            }
-            if(isAccessible){
-                player.stopReading();
-                val rawAudio: ByteArray = openAI.speech(
-                    request = SpeechRequest(
-                        model = ModelId("tts-1"),
-                        input = response.text.value,
-                        voice = Voice.Alloy,
+                if (isAccessible) {
+                    player.stopReading();
+                    val rawAudio: ByteArray = openAI.speech(
+                        request = SpeechRequest(
+                            model = ModelId("tts-1"),
+                            input = response.text.value,
+                            voice = Voice.Alloy,
+                        )
                     )
-                )
-                isPlaying.value = true
-                player.onCompletionListener = {
-                    isPlaying.value = false
+                    isPlaying.value = true
+                    player.onCompletionListener = {
+                        isPlaying.value = false
+                    }
+                    player.startReading(rawAudio);
                 }
-                player.startReading(rawAudio);
             }
+        }
+        catch (e: Exception){
+            val response = Message("Unfortunately something went wrong. Try sending the message again later. Error message: ${e.message}", MessageType.Model)
+            chatMessages = chatMessages + response
         }
     }
     fun stopPlaying() {

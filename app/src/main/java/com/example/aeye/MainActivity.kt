@@ -110,7 +110,8 @@ class MainActivity : ComponentActivity() {
         if (windowState.isDualScreen()){
             TwoPaneLayout(
                 paneMode = TwoPaneMode.HorizontalSingle,
-                pane1 = {
+                pane1 = { ChatView(ViewModel) },
+                pane2 = {
                     Scaffold(
                         snackbarHost = {
                             SnackbarHost(hostState = ViewModel.snackbarState) { data ->
@@ -123,12 +124,16 @@ class MainActivity : ComponentActivity() {
                             Box(
                                 modifier = Modifier.fillMaxSize().padding(innerPadding)
                             ) {
-                                ChatView(ViewModel)
+                                SnackbarHost(hostState = ViewModel.snackbarState) { data ->
+                                    Snackbar(
+                                        snackbarData = data
+                                    )
+                                }
+                                CameraView(ViewModel)
                             }
                         }
                     )
-                },
-                pane2 = { CameraView(ViewModel) }
+                }
             )
         } else {
             AppNavigation(ViewModel)
